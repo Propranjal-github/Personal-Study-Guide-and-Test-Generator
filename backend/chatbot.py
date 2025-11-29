@@ -22,7 +22,6 @@ class QuestionSolver:
             'Authorization': f'Bearer {self.groq_api_key}',
             'Content-Type': 'application/json'
         }
-        
         prompt = f"""Solve this academic problem in exactly 500 words or less in markdown format:
 
 Question: {question}
