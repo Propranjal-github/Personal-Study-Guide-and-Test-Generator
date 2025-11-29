@@ -25,7 +25,6 @@ Upload your academic material, extract questions, attempt timed tests, and get *
 - **Instant Evaluation**: Auto-evaluates tests and provides immediate feedback to reinforce learning.  
 - **Scalable & Reusable**: The AI pipeline can be extended to other exams like NEET, AIIMS, or even school assessments.  
 - **Interactive UI**: A clean, responsive dashboard makes test-taking smooth, motivating, and engaging.  
- 
 
 ---
 
