@@ -1,0 +1,12 @@
+Flask
+flask-cors
+PyMuPDF
+numpy
+faiss-cpu
+sentence-transformers
+Pillow
+requests
+python-dotenv
+scikit-learn
+pymongo
+pandas

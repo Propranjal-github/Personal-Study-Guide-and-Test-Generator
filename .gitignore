@@ -1,0 +1,72 @@
+# ======================
+# Dependencies
+# ======================
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# ======================
+# Next.js build files
+# ======================
+.next/
+out/
+build/
+
+# ======================
+# Logs
+# ======================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ======================
+# Environment variables
+# ======================
+.env*
+!.env.example   # (optional: keep sample env)
+
+# ======================
+# OS files
+# ======================
+.DS_Store
+Thumbs.db
+
+# ======================
+# Editor / IDE
+# ======================
+.vscode/
+.idea/
+
+# ======================
+# Testing
+# ======================
+coverage/
+
+# ======================
+# TypeScript
+# ======================
+*.tsbuildinfo
+next-env.d.ts
+
+# ======================
+# Vercel
+# ======================
+.vercel
+
+# ======================
+# Misc
+# ======================
+*.pem
