@@ -19,6 +19,10 @@ import json
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 import pandas as pd
+import json
+import re
+import time
+import requests
 
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 load_dotenv(dotenv_path)
@@ -40,7 +44,7 @@ embedder = SentenceTransformer('all-MiniLM-L6-v2')
 
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama3-8b-8192"
+GROQ_MODEL = "llama-3.1-8b-instant"
 
 question_faiss_index = faiss.IndexFlatL2(384)
 image_faiss_index = faiss.IndexFlatL2(384)
@@ -77,6 +81,7 @@ def upload_pdf():
         "pdf_name": file.filename
     }), 200
 
+
 @app.route('/api/generate-questions', methods=['POST'])
 def generate_questions_api():
     try:
@@ -88,56 +93,52 @@ def generate_questions_api():
         print(f"Generating {count} questions for subject: {subject}")
         print(f"Total questions in database: {len(questions_data)}")
 
+        # 🔍 Get relevant questions
         if topic_filter:
-            relevant_questions = retrieve_relevant_questions(topic_filter, subject, count * 3)
+            relevant_questions = retrieve_relevant_questions(topic_filter, subject, count * 2)
         else:
-            relevant_questions = filter_questions_by_subject(subject, count * 3)
+            relevant_questions = filter_questions_by_subject(subject, count * 2)
 
         print(f"Found {len(relevant_questions)} relevant questions")
 
-
-
-
         generated_questions = []
-        attempts = 0
-        max_attempts = len(relevant_questions)
 
-        for question_data in relevant_questions:
+        for i, question_data in enumerate(relevant_questions):
             if len(generated_questions) >= count:
                 break
 
-            attempts += 1
-            if attempts > max_attempts:
-                break
+            print(f"Processing question {i+1}/{len(relevant_questions)}")
 
-            print(f"Processing question {attempts}/{max_attempts}")
+            # ⏳ avoid rate limit
+            if i > 0:
+                time.sleep(3)
 
-            if attempts > 1:
-                time.sleep(1)  # avoid rate limit
-
+            # 🔥 Generate MCQ
             mcq = generate_enhanced_mcq(question_data)
 
-            if mcq:
-                generated_questions.append(mcq)
-                print(f"✅ Generated {len(generated_questions)} questions")
+            if not mcq:
+                print("❌ Skipped (generation failed)")
+                continue
 
-        print(f"Final count: {len(generated_questions)} questions generated")
+            # ✅ Validate MCQ
+            if not mcq.get("question") or len(mcq.get("options", [])) != 4:
+                print("❌ Invalid MCQ format")
+                continue
 
-        
-        if mcq and mcq.get("question") and len(mcq.get("options", [])) == 4:
-            associated_image = find_associated_image(question_data['id'])
-            
+            # 🧠 Build response object
             question_obj = {
                 "question": mcq["question"],
                 "options": mcq["options"],
-                "answer": mcq["answer"],
+                "answer": mcq["correct_answer"],  # ✅ FIXED KEY
                 "subject": question_data.get("subject", "Unknown"),
                 "source_text": question_data.get("text", "")[:200] + "...",
                 "page": question_data.get("page"),
                 "pdf_source": question_data.get("source_pdf")
             }
-            
-            # Add image if available
+
+            # 🖼️ Attach image if available
+            associated_image = find_associated_image(question_data['id'])
+
             if associated_image and os.path.exists(associated_image.get("image_path", "")):
                 try:
                     with open(associated_image["image_path"], "rb") as img_file:
@@ -145,15 +146,12 @@ def generate_questions_api():
                         question_obj["image_data"] = f"data:image/jpeg;base64,{img_data}"
                         question_obj["image_caption"] = associated_image.get("caption", "")
                 except Exception as e:
-                    print(f"Error loading image: {e}")
-            
+                    print(f"⚠️ Image error: {e}")
+
             generated_questions.append(question_obj)
-            print(f"Successfully generated question {len(generated_questions)}")
-        else:
-            print(f"Failed to generate valid MCQ for question: {question_data.get('text', '')[:50]}...")
+            print(f"✅ Generated {len(generated_questions)} questions")
 
-
-        print(f"Final count: {len(generated_questions)} questions generated")
+        print(f"🔥 Final count: {len(generated_questions)}")
 
         return jsonify({
             "questions": generated_questions,
@@ -162,9 +160,9 @@ def generate_questions_api():
             "total_questions_in_db": len(questions_data),
             "total_images_in_db": len(images_data)
         }), 200
-        
+
     except Exception as e:
-        print(f"Error in generate_questions_api: {e}")
+        print(f"❌ Error in generate_questions_api: {e}")
         return jsonify({"error": str(e)}), 500
     
 
@@ -468,17 +466,146 @@ def find_associated_image(question_id):
     return None
 
 
+CONTROL_CHARS_RE = re.compile(r'[\x00-\x1F\x7F]')
+CODE_FENCE_RE = re.compile(r'^\s*```(?:json)?\s*|\s*```\s*$', re.IGNORECASE | re.DOTALL)
+
+def clean_question_for_prompt(text):
+    text = str(text or "")
+    # Remove LaTeX-ish wrappers and backslashes so the model stops echoing them into JSON
+    text = text.replace("\\(", "")
+    text = text.replace("\\)", "")
+    text = text.replace("\\[", "")
+    text = text.replace("\\]", "")
+    text = text.replace("\\frac", "fraction")
+    text = text.replace("\\text", "")
+    text = text.replace("\\lambda", "lambda")
+    text = text.replace("\\alpha", "alpha")
+    text = text.replace("\\beta", "beta")
+    text = text.replace("\\pi", "pi")
+    text = text.replace("\\theta", "theta")
+    text = text.replace("\\cdot", "·")
+    text = text.replace("\\times", "x")
+    text = text.replace("\\", "")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:240]
+
+def strip_code_fences(text):
+    if not isinstance(text, str):
+        return ""
+    return CODE_FENCE_RE.sub("", text).strip()
+
+def extract_message_content(response):
+    try:
+        payload = response.json()
+    except ValueError:
+        print("❌ Response body is not JSON")
+        print("Raw:", response.text[:300])
+        return None
+
+    try:
+        choices = payload.get("choices", [])
+        if not choices:
+            print("❌ No choices in response")
+            return None
+        content = (choices[0].get("message") or {}).get("content", "")
+    except Exception as e:
+        print("❌ Failed to extract content:", e)
+        return None
+
+    if not isinstance(content, str) or not content.strip():
+        print("❌ Empty or invalid response content")
+        return None
+
+    return content
+
+def repair_json_candidate(text):
+    text = strip_code_fences(text)
+    text = CONTROL_CHARS_RE.sub(" ", text)
+    text = text.replace("\r", " ").replace("\t", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+
+    start = text.find("{")
+    if start == -1:
+        return None
+
+    end = text.rfind("}")
+    if end == -1 or end < start:
+        candidate = text[start:]
+    else:
+        candidate = text[start:end + 1]
+
+    candidate = candidate.strip()
+
+    # Remove trailing commas before } or ]
+    candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
+
+    # Make all backslashes literal so LaTeX-like content stops breaking JSON
+    candidate = candidate.replace("\\", "\\\\")
+
+    # If quotes are unbalanced, try a simple recovery
+    if candidate.count('"') % 2 != 0:
+        candidate += '"'
+
+    # If braces are unbalanced, close them
+    open_braces = candidate.count("{")
+    close_braces = candidate.count("}")
+    if close_braces < open_braces:
+        candidate += "}" * (open_braces - close_braces)
+
+    return candidate
+
+def parse_mcq_content(content):
+    candidate = repair_json_candidate(content)
+    if not candidate:
+        print("❌ No JSON found in response")
+        print("Raw:", content[:300])
+        return None
+
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError as e:
+        print("❌ JSON decode error:", e)
+        print("Raw:", candidate[:300])
+        return None
+
+def normalize_correct_answer(correct_answer, options):
+    if not options or len(options) != 4:
+        return None, None
+
+    raw = str(correct_answer).strip()
+
+    # A / B / C / D
+    m = re.match(r'^\s*([ABCD])\s*[\)\.\-:]?\s*$', raw, flags=re.IGNORECASE)
+    if m:
+        letter = m.group(1).upper()
+        idx = ord(letter) - 65
+        return letter, options[idx] if 0 <= idx < 4 else None
+
+    # A) text / B. text
+    m = re.match(r'^\s*([ABCD])\s*[\)\.\-:]\s*(.+)$', raw, flags=re.IGNORECASE)
+    if m:
+        letter = m.group(1).upper()
+        idx = ord(letter) - 65
+        return letter, options[idx] if 0 <= idx < 4 else m.group(2).strip()
+
+    # Match by text
+    raw_norm = re.sub(r"\s+", " ", raw).strip().lower()
+    for i, opt in enumerate(options):
+        opt_norm = re.sub(r"\s+", " ", str(opt)).strip().lower()
+        if raw_norm == opt_norm or raw_norm in opt_norm or opt_norm in raw_norm:
+            return chr(65 + i), opt
+
+    return None, raw
+
 def generate_enhanced_mcq(question_data):
     try:
-        # 🔥 Clean input (IMPORTANT)
-        raw_question = question_data.get("question", "")
-        clean_question = raw_question.strip()[:300]
+        raw_question = question_data.get("question") or question_data.get("text", "")
+        clean_question = clean_question_for_prompt(raw_question)
 
         if not clean_question:
-            print("Empty question skipped")
+            print("❌ Empty question skipped")
             return None
 
-        # 🔥 Strong prompt
         prompt = f"""
 Convert the following question into a multiple choice question (MCQ).
 
@@ -488,76 +615,113 @@ Question:
 Rules:
 - Create exactly 4 options
 - Only one correct answer
-- Make it clear and concise
+- Keep it short and clear
+- Do NOT use LaTeX
+- Do NOT use markdown
+- Do NOT use backslashes
+- Do NOT use code fences
+- Return ONLY valid JSON
+- Make "solution" very short, max 1 sentence
 
-Return ONLY valid JSON:
+Return this exact JSON shape:
 {{
   "question": "...",
-  "options": ["A", "B", "C", "D"],
-  "correct_answer": "...",
+  "options": ["...", "...", "...", "..."],
+  "correct_answer": "A",
   "solution": "..."
 }}
 """
 
         headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Accept": "application/json",
         }
 
         data = {
-            "model": "llama3-8b-8192",
+            "model": GROQ_MODEL,
             "messages": [
                 {"role": "user", "content": prompt}
             ],
-            "temperature": 0.7
+            "temperature": 0.1
         }
 
-        # 🔥 API CALL
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers,
-            json=data
-        )
+        response = None
 
-        # 🔍 Debug
-        print("Status:", response.status_code)
+        # Retries for rate limit + network failures
+        for attempt in range(4):
+            try:
+                response = requests.post(
+                    GROQ_API_URL,
+                    headers=headers,
+                    json=data,
+                    timeout=(10, 60)
+                )
+            except requests.exceptions.RequestException as e:
+                wait = min(30, 2 ** attempt)
+                print(f"❌ Network error: {e}")
+                time.sleep(wait)
+                continue
 
-        if response.status_code != 200:
-            print("GROQ API error:", response.status_code, response.text)
+            if response.status_code == 200:
+                break
+
+            if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    wait = float(retry_after) if retry_after else min(30, 5 * (attempt + 1))
+                except ValueError:
+                    wait = min(30, 5 * (attempt + 1))
+
+                print(f"⏳ Rate limit, waiting {wait}s")
+                time.sleep(wait)
+                continue
+
+            print("❌ GROQ API error:", response.status_code, response.text[:500])
+            return None
+        else:
             return None
 
-        result = response.json()
-        content = result["choices"][0]["message"]["content"]
-
-        print("Raw response:", content)
-
-        # 🔥 Extract JSON safely
-        start = content.find("{")
-        end = content.rfind("}") + 1
-
-        if start == -1 or end == -1:
-            print("Invalid JSON format")
+        content = extract_message_content(response)
+        if content is None:
             return None
 
-        json_str = content[start:end]
-        mcq = json.loads(json_str)
-
-        # ✅ Validate structure
-        if not all(key in mcq for key in ["question", "options", "correct_answer", "solution"]):
-            print("Invalid MCQ structure")
+        mcq = parse_mcq_content(content)
+        if not mcq or not isinstance(mcq, dict):
+            print("❌ Parsed payload invalid")
             return None
 
-        if len(mcq["options"]) != 4:
-            print("Invalid options count")
+        question = str(mcq.get("question", "")).strip()
+        options = mcq.get("options", [])
+        solution = str(mcq.get("solution", "")).strip()
+
+        if not question:
+            print("❌ Missing question text")
             return None
 
-        return mcq
+        if not isinstance(options, list) or len(options) != 4:
+            print("❌ Invalid options count")
+            return None
+
+        options = [str(opt).strip() for opt in options]
+
+        correct_letter, correct_text = normalize_correct_answer(mcq.get("correct_answer"), options)
+        if not correct_letter:
+            print("❌ Could not normalize correct answer")
+            print("Raw answer:", mcq.get("correct_answer"))
+            return None
+
+        return {
+            "question": question,
+            "options": options,
+            "correct_answer": correct_letter,
+            "correct_answer_text": correct_text,
+            "solution": solution[:250]
+        }
 
     except Exception as e:
-        print("Error generating MCQ:", str(e))
+        print("❌ Error generating MCQ:", str(e))
         return None
-    
-
 
 def parse_mcq_string(mcq_str):
     try:
