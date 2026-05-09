@@ -99,6 +99,12 @@ def generate_questions_api():
         else:
             relevant_questions = filter_questions_by_subject(subject, count * 2)
 
+        relevant_questions = [
+            q for q in relevant_questions
+            if is_valid_question_text(q.get("text", ""))
+            and (subject == "All" or q.get("subject") == subject)
+        ]
+
         print(f"Found {len(relevant_questions)} relevant questions")
 
         generated_questions = []
@@ -138,6 +144,15 @@ def generate_questions_api():
 
             # 🖼️ Attach image if available
             associated_image = find_associated_image(question_data['id'])
+
+            if associated_image:
+                img_score = image_relevance_score(
+                    question_data.get("text", ""),
+                    associated_image.get("caption", ""),
+                    associated_image.get("surrounding_text", "")
+                )
+                if img_score < 1:
+                    associated_image = None
 
             if associated_image and os.path.exists(associated_image.get("image_path", "")):
                 try:
@@ -273,54 +288,52 @@ def get_subjects():
 def extract_pdf_data_enhanced(pdf_path, output_dir):
     doc = fitz.open(pdf_path)
     filename = os.path.basename(pdf_path)
-    
+
     extracted_questions = []
     extracted_images = []
     associations = []
-    
+
     current_subject = None
-    
+
     for page_num in range(len(doc)):
         page = doc[page_num]
         text = page.get_text()
         lower_text = text.lower()
-        
-        if "physics" in lower_text:
-            current_subject = "Physics"
-        elif "chemistry" in lower_text:
-            current_subject = "Chemistry"
-        elif "math" in lower_text or "mathematics" in lower_text:
-            current_subject = "Mathematics"
-        elif "biology" in lower_text:
-            current_subject = "Biology"
-        
-        text_blocks = page.get_text("dict")
-        
-        questions_on_page = extract_questions_from_text(text, page_num, filename, current_subject)
+
+        page_subject = detect_subject_from_text(text, current_subject)
+        if page_subject:
+            current_subject = page_subject
+
+        questions_on_page = extract_questions_from_text(
+            text, page_num, filename, current_subject or "All"
+        )
         extracted_questions.extend(questions_on_page)
-        
+
         for img_index, img in enumerate(page.get_images(full=True)):
             xref = img[0]
             base_image = doc.extract_image(xref)
             image_bytes = base_image["image"]
             image_ext = base_image["ext"]
-            
+
             image_filename = f"{filename}_p{page_num+1}_img{img_index+1}.{image_ext}"
             image_path = os.path.join(output_dir, image_filename)
-            
+
             with open(image_path, "wb") as f:
                 f.write(image_bytes)
-            
-            img_rect = fitz.Rect(img[1:5]) 
-            
-            nearby_text = extract_text_near_image(page, img_rect, distance_threshold=100)
-            
+
+            img_rect = fitz.Rect(img[1:5])
+            nearby_text = normalize_text(extract_text_near_image(page, img_rect, distance_threshold=100))
+
+            # Skip weak / generic images
+            if len(nearby_text) < 10:
+                continue
+
             image_data = {
                 "id": str(uuid.uuid4()),
                 "image_path": image_path,
                 "page": page_num + 1,
                 "source_pdf": filename,
-                "subject": current_subject,
+                "subject": current_subject or "Unknown",
                 "position": {
                     "x": img_rect.x0,
                     "y": img_rect.y0,
@@ -328,49 +341,81 @@ def extract_pdf_data_enhanced(pdf_path, output_dir):
                     "height": img_rect.height
                 },
                 "caption": nearby_text,
-                "surrounding_text": text  
+                "surrounding_text": text
             }
-            
+
             extracted_images.append(image_data)
-            
+
             for question in questions_on_page:
-                similarity_score = calculate_text_similarity(question["text"], nearby_text)
-                if similarity_score > 0.3:
+                q_text = question.get("text", "")
+                q_subject = question.get("subject", current_subject)
+
+                if not is_valid_question_text(q_text):
+                    continue
+
+                # same subject only
+                if current_subject and q_subject and q_subject != current_subject:
+                    continue
+
+                similarity_score = calculate_text_similarity(q_text, nearby_text)
+                overlap_score = image_relevance_score(q_text, nearby_text, text)
+
+                # stricter association rule
+                if similarity_score >= MIN_IMAGE_SIMILARITY and overlap_score >= 1:
                     associations.append({
                         "question_id": question["id"],
                         "image_id": image_data["id"],
                         "similarity_score": similarity_score,
-                        "association_type": "semantic"
+                        "caption_overlap": overlap_score,
+                        "question_page": question["page"],
+                        "image_page": image_data["page"],
+                        "question_subject": q_subject,
+                        "image_subject": image_data["subject"],
+                        "association_type": "semantic_strict"
                     })
-    
+
     doc.close()
     return extracted_questions, extracted_images, associations
 
 def extract_questions_from_text(text, page_num, filename, subject):
     questions = []
-    
+    seen = set()
+
     question_patterns = [
-        r'(\d+\.\s+.*?(?=\d+\.\s+|\n\n|\Z))', 
-        r'(Q\d+\.\s+.*?(?=Q\d+\.\s+|\n\n|\Z))',  
-        r'(\(\d+\)\s+.*?(?=\(\d+\)|\n\n|\Z))', 
-        r'(Example\s+\d+.*?(?=Example\s+\d+|\n\n|\Z))', 
+        r'(\d+\.\s+.*?(?=\d+\.\s+|\n\n|\Z))',
+        r'(Q\d+\.\s+.*?(?=Q\d+\.\s+|\n\n|\Z))',
+        r'(\(\d+\)\s+.*?(?=\(\d+\)|\n\n|\Z))',
+        r'(Example\s+\d+.*?(?=Example\s+\d+|\n\n|\Z))',
+        r'([A-Z][^.]{20,400}\?)'
     ]
-    
+
     for i, pattern in enumerate(question_patterns):
         matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
         for match in matches:
-            if len(match.strip()) > 50:  
-                question_data = {
-                    "id": str(uuid.uuid4()),
-                    "text": match.strip(),
-                    "page": page_num + 1,
-                    "source_pdf": filename,
-                    "subject": subject,
-                    "extraction_pattern": i,
-                    "word_count": len(match.split())
-                }
-                questions.append(question_data)
-    
+            candidate = normalize_text(match)
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+
+            if not is_valid_question_text(candidate):
+                continue
+
+            q_subject = detect_subject_from_text(candidate, subject)
+
+            # Strict subject lock: if subject is known and question looks like another subject, skip it
+            if subject != "All" and q_subject and q_subject != subject:
+                continue
+
+            questions.append({
+                "id": str(uuid.uuid4()),
+                "text": candidate,
+                "page": page_num + 1,
+                "source_pdf": filename,
+                "subject": q_subject or subject or "Unknown",
+                "extraction_pattern": i,
+                "word_count": len(candidate.split())
+            })
+
     return questions
 
 def extract_text_near_image(page, img_rect, distance_threshold=100):
@@ -431,39 +476,198 @@ def store_enhanced_data_to_faiss(questions, images, associations):
     
     question_image_associations.extend(associations)
 
+
 def retrieve_relevant_questions(query, subject, k=10):
     if not questions_data:
         return []
-    
+
     query_embedding = embedder.encode([query])
-    
-    distances, indices = question_faiss_index.search(query_embedding.astype('float32'), min(k*2, len(questions_data)))
-    
+    search_k = min(max(k * 4, 20), len(questions_data))
+
+    distances, indices = question_faiss_index.search(
+        query_embedding.astype('float32'),
+        search_k
+    )
+
     relevant_questions = []
+    seen = set()
+
     for idx in indices[0]:
-        if idx < len(questions_data):
-            question = questions_data[idx]
-            if subject == 'All' or question.get('subject') == subject:
-                relevant_questions.append(question)
-    
-    return relevant_questions[:k]
+        if idx < 0 or idx >= len(questions_data):
+            continue
+
+        question = questions_data[idx]
+        q_text = question.get("text", "")
+
+        if not is_valid_question_text(q_text):
+            continue
+
+        if subject != 'All' and question.get('subject') != subject:
+            continue
+
+        norm = normalize_text(q_text).lower()
+        if norm in seen:
+            continue
+        seen.add(norm)
+
+        relevant_questions.append(question)
+        if len(relevant_questions) >= k:
+            break
+
+    return relevant_questions
 
 def filter_questions_by_subject(subject, k=10):
     filtered_questions = []
+    seen = set()
+
     for question in questions_data:
-        if subject == 'All' or question.get('subject') == subject:
-            filtered_questions.append(question)
-    
-    return filtered_questions[:k]
+        q_text = question.get("text", "")
+
+        if not is_valid_question_text(q_text):
+            continue
+
+        if subject != 'All' and question.get('subject') != subject:
+            continue
+
+        norm = normalize_text(q_text).lower()
+        if norm in seen:
+            continue
+        seen.add(norm)
+
+        filtered_questions.append(question)
+        if len(filtered_questions) >= k:
+            break
+
+    return filtered_questions
+
+
+
+# =========================
+# STRICT PIPELINE RULES
+# Paste after find_associated_image() and before generate_enhanced_mcq()
+# =========================
+
+META_PATTERNS = [
+    r"maximum marks", r"question paper", r"paper pattern", r"structure of the question paper",
+    r"how many questions", r"answered out of", r"marking scheme", r"total marks",
+    r"section\s+[a-z0-9]+", r"instructions?", r"choose the correct option for free expansion",
+    r"number of questions", r"part\s+[ivx]+", r"all questions are compulsory"
+]
+
+SUBJECT_KEYWORDS = {
+    "Physics": [
+        r"\bphysics\b", r"\bforce\b", r"\bvelocity\b", r"\bacceleration\b", r"\bcurrent\b",
+        r"\bvoltage\b", r"\bresistance\b", r"\boptics?\b", r"\bmechanics?\b", r"\bthermodynamics?\b",
+        r"\bwave(s)?\b", r"\belectric\b", r"\bmagnetic\b"
+    ],
+    "Chemistry": [
+        r"\bchemistry\b", r"\breaction(s)?\b", r"\bacid(s)?\b", r"\bbase(s)?\b", r"\bsalt(s)?\b",
+        r"\bcompound(s)?\b", r"\bmole(s)?\b", r"\bor ganic\b", r"\binorganic\b", r"\bperiodic\b",
+        r"\boxidation\b", r"\breduction\b"
+    ],
+    "Mathematics": [
+        r"\bmathematics\b", r"\balgebra\b", r"\bgeometry\b", r"\bcalculus\b", r"\bintegral(s)?\b",
+        r"\bderivative(s)?\b", r"\bprobability\b", r"\btrigonometry\b", r"\bsequence(s)?\b"
+    ],
+    "Biology": [
+        r"\bbiology\b", r"\bcell(s)?\b", r"\bgenetic(s)?\b", r"\bplant(s)?\b", r"\banimal(s)?\b",
+        r"\bphotosynthesis\b", r"\bhuman body\b", r"\brespiration\b"
+    ]
+}
+
+MIN_QUESTION_LEN = 35
+MIN_IMAGE_SIMILARITY = 0.58
+
+def normalize_text(text):
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+def token_set(text):
+    words = re.findall(r"[a-zA-Z0-9]+", normalize_text(text).lower())
+    return {w for w in words if len(w) > 2}
+
+def is_meta_question(text):
+    t = normalize_text(text).lower()
+    return any(re.search(pat, t, re.IGNORECASE) for pat in META_PATTERNS)
+
+def subject_score_map(text):
+    low = normalize_text(text).lower()
+    scores = {}
+    for subject, patterns in SUBJECT_KEYWORDS.items():
+        score = 0
+        for pat in patterns:
+            if re.search(pat, low, re.IGNORECASE):
+                score += 1
+        scores[subject] = score
+    return scores
+
+def detect_subject_from_text(text, fallback=None):
+    scores = subject_score_map(text)
+    best_subject = None
+    best_score = 0
+    for subject, score in scores.items():
+        if score > best_score:
+            best_subject = subject
+            best_score = score
+
+    if best_score == 0:
+        return fallback
+
+    # If two subjects are too close, keep fallback instead of guessing.
+    sorted_scores = sorted(scores.values(), reverse=True)
+    second_best = sorted_scores[1] if len(sorted_scores) > 1 else 0
+    if best_score <= second_best:
+        return fallback
+
+    return best_subject or fallback
+
+def is_valid_question_text(text):
+    t = normalize_text(text)
+    if len(t) < MIN_QUESTION_LEN:
+        return False
+    if is_meta_question(t):
+        return False
+    # reject very broken fragments
+    if t.count("(") > 6 and t.count(")") < 2:
+        return False
+    if t.count("=") > 10:
+        return False
+    return True
+
+def image_relevance_score(question_text, caption, surrounding_text=""):
+    q = token_set(question_text)
+    c = token_set(caption)
+    s = token_set(surrounding_text)
+    overlap = len(q & (c | s))
+    return overlap
+
+def is_meaningful_option(opt):
+    t = normalize_text(opt)
+    if len(t) < 2:
+        return False
+    if is_meta_question(t):
+        return False
+    # reject pure symbol/noise options
+    if re.fullmatch(r"[\d\s\-\+\*/=().,^%]+", t):
+        return False
+    return True
 
 def find_associated_image(question_id):
-    for association in question_image_associations:
-        if association["question_id"] == question_id:
-            image_id = association["image_id"]
-            for image in images_data:
-                if image["id"] == image_id:
-                    return image
-    return None
+    candidates = [
+        a for a in question_image_associations
+        if a.get("question_id") == question_id and a.get("similarity_score", 0) >= MIN_IMAGE_SIMILARITY
+    ]
+    if not candidates:
+        return None
+
+    best = max(
+        candidates,
+        key=lambda a: (
+            a.get("similarity_score", 0),
+            a.get("caption_overlap", 0),
+        )
+    )
+
+    return next((img for img in images_data if img["id"] == best["image_id"]), None)
 
 
 CONTROL_CHARS_RE = re.compile(r'[\x00-\x1F\x7F]')
@@ -607,30 +811,32 @@ def generate_enhanced_mcq(question_data):
             return None
 
         prompt = f"""
-Convert the following question into a multiple choice question (MCQ).
+        You are converting ONE valid subject-specific question into a clean MCQ.
 
-Question:
-{clean_question}
+        Source question:
+        {clean_question}
 
-Rules:
-- Create exactly 4 options
-- Only one correct answer
-- Keep it short and clear
-- Do NOT use LaTeX
-- Do NOT use markdown
-- Do NOT use backslashes
-- Do NOT use code fences
-- Return ONLY valid JSON
-- Make "solution" very short, max 1 sentence
+        STRICT RULES:
+        - Use only the source question.
+        - Do NOT create paper-pattern, instructions, marks, section-count, or meta questions.
+        - Do NOT mix another subject.
+        - Do NOT use LaTeX.
+        - Do NOT use markdown.
+        - Do NOT use backslashes in values.
+        - Create exactly 4 options.
+        - All 4 options must be meaningful, plausible, and clearly different.
+        - Options must not be random numbers only.
+        - Output must be valid JSON only.
+        - Keep solution short, 1 sentence max.
 
-Return this exact JSON shape:
-{{
-  "question": "...",
-  "options": ["...", "...", "...", "..."],
-  "correct_answer": "A",
-  "solution": "..."
-}}
-"""
+        Return exactly this JSON shape:
+        {{
+        "question": "...",
+        "options": ["...", "...", "...", "..."],
+        "correct_answer": "A",
+        "solution": "..."
+        }}
+        """
 
         headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -691,6 +897,24 @@ Return this exact JSON shape:
             print("❌ Parsed payload invalid")
             return None
 
+        # 🔥 ADD THIS BLOCK HERE
+        if not is_valid_question_text(mcq.get("question", "")):
+            print("❌ Invalid or meta question")
+            return None
+
+        if not isinstance(mcq.get("options", []), list) or len(mcq["options"]) != 4:
+            print("❌ Invalid options count")
+            return None
+
+        if len({normalize_text(o).lower() for o in mcq["options"]}) != 4:
+            print("❌ Duplicate options found")
+            return None
+
+        if not all(is_meaningful_option(opt) for opt in mcq["options"]):
+            print("❌ Options are not meaningful")
+            return None
+        # 🔥 END BLOCK
+
         question = str(mcq.get("question", "")).strip()
         options = mcq.get("options", [])
         solution = str(mcq.get("solution", "")).strip()
@@ -718,9 +942,8 @@ Return this exact JSON shape:
             "correct_answer_text": correct_text,
             "solution": solution[:250]
         }
-
-    except Exception as e:
-        print("❌ Error generating MCQ:", str(e))
+    except Exception as e: 
+        print("❌ Error generating MCQ:", str(e)) 
         return None
 
 def parse_mcq_string(mcq_str):
@@ -761,6 +984,8 @@ def parse_mcq_string(mcq_str):
     except Exception as e:
         print(f"Error parsing MCQ string: {e}")
         return None
+    
+
 @app.route('/api/user-test-results/<user_id>', methods=['GET'])
 def get_user_test_results(user_id):
     try:

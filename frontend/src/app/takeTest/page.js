@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
-import Image from "next/image";
+//import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { auth } from "../lib/firebase-config"; 
 import { onAuthStateChanged } from "firebase/auth";
@@ -17,6 +17,7 @@ export default function TakeTest() {
   const [showWarning, setShowWarning] = useState(false);
   const [user, setUser] = useState(null); 
   const [authLoading, setAuthLoading] = useState(true); 
+  const [visitedQuestions, setVisitedQuestions] = useState({});
   const router = useRouter();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -129,6 +130,10 @@ export default function TakeTest() {
   }, [router, authLoading, user]);
 
   useEffect(() => {
+    setVisitedQuestions({ 0: true }); // first question visited
+  }, []);
+
+  useEffect(() => {
     if (timeLeft > 0 && !testCompleted && testData) {
       if (timeLeft === 300) {
         setShowWarning(true);
@@ -155,6 +160,15 @@ export default function TakeTest() {
     setUserAnswers(prev => ({
       ...prev,
       [questionIndex]: answer,
+    }));
+  };
+
+  const handleQuestionChange = (index) => {
+    setCurrentQuestionIndex(index);
+
+    setVisitedQuestions((prev) => ({
+      ...prev,
+      [index]: true,
     }));
   };
 
@@ -317,23 +331,30 @@ export default function TakeTest() {
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             {/* Question Navigation */}
             <div className="lg:col-span-1">
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-gray-50 rounded-lg p-4 max-h-[70vh] overflow-y-auto">
                 <h3 className="font-medium mb-4 text-gray-800">Questions</h3>
+
                 <div className="grid grid-cols-4 lg:grid-cols-3 gap-2">
                   {testData.questions.map((_, index) => {
                     const isAnswered = userAnswers.hasOwnProperty(index);
+                    const isVisited = visitedQuestions.hasOwnProperty(index);
                     const isCurrent = index === currentQuestionIndex;
+
+                    let buttonStyle = "bg-white border hover:bg-gray-50";
+
+                    if (isCurrent) {
+                      buttonStyle = "bg-orange-500 text-white";
+                    } else if (isAnswered) {
+                      buttonStyle = "bg-green-600 text-white";
+                    } else if (isVisited) {
+                      buttonStyle = "bg-yellow-400 text-black";
+                    }
+
                     return (
                       <button
                         key={index}
-                        onClick={() => setCurrentQuestionIndex(index)}
-                        className={`aspect-square rounded-lg text-sm font-medium transition-colors ${
-                          isCurrent
-                            ? "bg-orange-500 text-white"
-                            : isAnswered
-                            ? "bg-gray-800 text-white"
-                            : "bg-white border hover:bg-gray-50"
-                        }`}
+                        onClick={() => handleQuestionChange(index)}
+                        className={`aspect-square rounded-lg text-sm font-medium transition-colors ${buttonStyle}`}
                       >
                         {index + 1}
                       </button>
@@ -361,7 +382,7 @@ export default function TakeTest() {
 
                 {currentQuestion.image_data && (
                   <div className="mb-6 bg-white rounded-lg p-4">
-                    <Image
+                    <img
                       src={currentQuestion.image_data}
                       alt="Question diagram"
                       className="max-w-full h-auto rounded-lg mx-auto"
