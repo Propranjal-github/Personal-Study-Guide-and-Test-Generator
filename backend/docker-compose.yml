@@ -1,0 +1,31 @@
+services:
+  backend:
+    build: .
+    container_name: jeeace_backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/jeeace
+      AUTO_INGEST_ON_STARTUP: "false"
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./extracted_images:/app/extracted_images
+      - ./storage:/app/storage
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16
+    container_name: jeeace_postgres
+    environment:
+      POSTGRES_DB: jeeace
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - jeeace_pgdata:/var/lib/postgresql/data
+
+volumes:
+  jeeace_pgdata:

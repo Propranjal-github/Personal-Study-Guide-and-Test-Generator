@@ -16,6 +16,13 @@ venv/
 .venv/
 __pycache__/
 *.pyc
+*.db
+backend/storage/*
+!backend/storage/.gitkeep
+backend/logs/*
+!backend/logs/.gitkeep
+backend/vector_cache/*
+!backend/vector_cache/.gitkeep
 
 # ======================
 # Next.js build files
