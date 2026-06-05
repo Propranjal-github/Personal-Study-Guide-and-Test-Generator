@@ -98,6 +98,16 @@ def reingest():
     except Exception as e:
         return {"error": str(e)}, 500
 
+from database.models import Question, ImageAsset
+
+
+@question_bp.route("/api/admin/stats", methods=["GET"])
+def admin_stats():
+    return {
+        "questions": Question.query.count(),
+        "images": ImageAsset.query.count()
+    }, 200
+
 
 @question_bp.route("/api/generate-questions", methods=["POST"])
 def generate_questions_api():
@@ -217,6 +227,14 @@ def generate_questions_api():
         }), 200
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@question_bp.route("/api/admin/stats")
+def stats():
+    return {
+        "questions": Question.query.count(),
+        "images": ImageAsset.query.count()
+    }
 
 
 @question_bp.route("/api/save-test", methods=["POST"])
