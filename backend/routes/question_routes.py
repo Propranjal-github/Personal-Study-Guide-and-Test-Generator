@@ -79,6 +79,24 @@ def upload_pdf():
         }), 200
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+    
+@question_bp.route("/api/admin/reingest", methods=["POST"])
+def reingest():
+    try:
+        from ingestion.ingest import ingest_all_pdfs
+        from database.models import Question, ImageAsset
+
+        report = ingest_all_pdfs(db.session)
+
+        return {
+            "success": True,
+            "report": report,
+            "questions": Question.query.count(),
+            "images": ImageAsset.query.count()
+        }, 200
+
+    except Exception as e:
+        return {"error": str(e)}, 500
 
 
 @question_bp.route("/api/generate-questions", methods=["POST"])

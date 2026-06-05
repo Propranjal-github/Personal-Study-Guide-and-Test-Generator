@@ -12,6 +12,9 @@ from rag.embeddings import faiss_store
 from routes.analytics_routes import analytics_bp
 from routes.question_routes import question_bp
 
+print("===== STARTING APPLICATION =====")
+print("AUTO_INGEST_ON_STARTUP =", AUTO_INGEST_ON_STARTUP)
+
 
 def create_app():
     app = Flask(__name__)
@@ -39,22 +42,51 @@ def create_app():
         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         supports_credentials=True,
     )
-    
+
     db.init_app(app)
     app.register_blueprint(question_bp)
     app.register_blueprint(analytics_bp)
-
+    
     with app.app_context():
         db.create_all()
-        if AUTO_INGEST_ON_STARTUP:
-            try:
+
+        try:
+            question_count = Question.query.count()
+
+            app.logger.info(
+                f"Database contains {question_count} questions"
+            )
+
+            if question_count == 0 and AUTO_INGEST_ON_STARTUP:
+                app.logger.info(
+                    "Database empty. Starting first-time PDF ingestion..."
+                )
+
                 ingest_all_pdfs(db.session)
-            except Exception as exc:
-                app.logger.warning("Startup ingest failed: %s", exc)
-                try:
-                    faiss_store.rebuild_from_db(db.session, Question, ImageAsset)
-                except Exception as rebuild_exc:
-                    app.logger.warning("FAISS rebuild failed: %s", rebuild_exc)
+
+                app.logger.info(
+                    "Initial ingestion completed successfully"
+                )
+
+            else:
+                app.logger.info(
+                    "Questions already exist. Rebuilding FAISS from database..."
+                )
+
+                faiss_store.rebuild_from_db(
+                    db.session,
+                    Question,
+                    ImageAsset
+                )
+
+                app.logger.info(
+                    "FAISS rebuild completed successfully"
+                )
+
+        except Exception as exc:
+            app.logger.error(
+                f"Startup initialization failed: {exc}"
+            )
 
     return app
 
