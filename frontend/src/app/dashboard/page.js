@@ -23,6 +23,7 @@ export default function Dashboard() {
     });
     return () => unsubscribe();
   }, [router]);
+  
   const fetchTestResults = useCallback(async () => {
     try {
       setLoading(true);

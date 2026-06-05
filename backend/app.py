@@ -26,7 +26,20 @@ def create_app():
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    CORS(app, origins=CORS_ORIGINS, supports_credentials=True)
+    #CORS(app, origins=CORS_ORIGINS, supports_credentials=True)
+    from flask_cors import CORS
+
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": "*"}},
+        allow_headers=[
+            "Content-Type",
+            "Authorization"
+        ],
+        methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        supports_credentials=True,
+    )
+    
     db.init_app(app)
     app.register_blueprint(question_bp)
     app.register_blueprint(analytics_bp)
