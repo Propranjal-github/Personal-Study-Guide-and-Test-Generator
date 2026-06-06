@@ -18,7 +18,7 @@ from rag.validation import (
     normalize_text,
     image_relevance_score,
 )
-from rag.embeddings import faiss_store
+from rag.embeddings import get_faiss_store
 
 QUESTION_PATTERNS = [
     r'(\d+\.\s+.*?(?=\d+\.\s+|\n\n|\Z))',
@@ -228,9 +228,9 @@ def process_pdf_file(pdf_path, output_dir=IMAGE_DIR):
                 similarity_score = 0.0
                 try:
                     from sklearn.metrics.pairwise import cosine_similarity as _cos
-                    q_vec = faiss_store.embed_texts([q_text])
+                    q_vec = get_faiss_store().embed_texts([q_text])
                     image_text = image_data["caption"] + " " + image_data["surrounding_text"][:500]
-                    i_vec = faiss_store.embed_texts([image_text])
+                    i_vec = get_faiss_store().embed_texts([image_text])
                     similarity_score = float(_cos(q_vec, i_vec)[0][0])
                 except Exception:
                     similarity_score = 0.0

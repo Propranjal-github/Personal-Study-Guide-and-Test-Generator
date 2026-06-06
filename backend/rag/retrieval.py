@@ -1,7 +1,7 @@
 print("LOADING retrieval")
 
 from rag.validation import normalize_text, is_valid_question_text, detect_subject_from_text
-from rag.embeddings import faiss_store
+from rag.embeddings import get_faiss_store
 from database.models import Question
 
 def _topic_similarity(topic1, topic2):
@@ -65,7 +65,7 @@ def retrieve_relevant_questions(session, query_text, subject, k=10, topic_filter
     weak_topics_weights = weak_topics_weights or {}
 
     # semantic candidates
-    sem_results = faiss_store.search_questions(query_text or "", k=max(k * 5, 20))
+    sem_results = get_faiss_store().search_questions(query_text or "", k=max(k * 5, 20))
     if not sem_results:
         return filter_questions_by_subject(session, subject, k)
 
