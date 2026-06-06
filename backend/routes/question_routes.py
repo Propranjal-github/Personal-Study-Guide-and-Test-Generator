@@ -182,14 +182,15 @@ def generate_questions_api():
             if not mcq:
                 continue
 
-            try:
-                source_emb = get_faiss_store().embed_texts([normalize_text(question.question_text)])
-                generated_emb = get_faiss_store().embed_texts([normalize_text(mcq.get("question", ""))])
-                qsim = float(cosine_similarity(source_emb, generated_emb)[0][0])
-            except Exception:
-                qsim = 1.0
-            if qsim < 0.45:
-                continue
+            # try:
+            #     source_emb = get_faiss_store().embed_texts([normalize_text(question.question_text)])
+            #     generated_emb = get_faiss_store().embed_texts([normalize_text(mcq.get("question", ""))])
+            #     qsim = float(cosine_similarity(source_emb, generated_emb)[0][0])
+            # except Exception:
+            #     qsim = 1.0
+            # if qsim < 0.45:
+            #     continue
+            qsim = 1.0
 
             question_obj = {
                 "question": mcq["question"],
@@ -228,7 +229,12 @@ def generate_questions_api():
             },
         }), 200
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        import traceback
+        traceback.print_exc()
+
+        return jsonify({
+            "error": str(exc)
+        }), 500
 
 
 @question_bp.route("/api/admin/stats")
