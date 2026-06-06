@@ -230,15 +230,15 @@ Return exactly this JSON shape:
             return None
 
         # semantic drift check
-        try:
-            source_vec = get_faiss_store().embed_texts([clean_question])
-            gen_vec = get_faiss_store().embed_texts([question])
-            qsim = cosine_similarity(source_vec, gen_vec)[0][0]
-            if qsim < MIN_QUESTION_SIMILARITY:
-                print("Generated question too far from source")
-                return None
-        except Exception:
-            pass
+        # try:
+        #     source_vec = get_faiss_store().embed_texts([clean_question])
+        #     gen_vec = get_faiss_store().embed_texts([question])
+        #     qsim = cosine_similarity(source_vec, gen_vec)[0][0]
+        #     if qsim < MIN_QUESTION_SIMILARITY:
+        #         print("Generated question too far from source")
+        #         return None
+        # except Exception:
+        #     pass
 
         return {
             "question": question,

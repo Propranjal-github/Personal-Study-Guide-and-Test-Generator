@@ -139,7 +139,7 @@ def generate_questions_api():
                 db.session,
                 topic_filter,
                 subject,
-                k=count * 4,
+                k=min(count * 2, 150),
                 topic_filter=topic_filter,
                 weak_topics_weights=weak_topics_weights,
                 difficulty=difficulty,
@@ -162,25 +162,31 @@ def generate_questions_api():
                 break
             if not is_valid_question_text(question.question_text):
                 continue
-            if index > 0:
-                time.sleep(2)
+            # if index > 0:
+            #     time.sleep(2)
 
-            mcq = generate_enhanced_mcq({
-                "id": question.id,
-                "text": question.question_text,
-                "raw_text": question.raw_text,
-                "question_text": question.question_text,
-                "options": question.options or [],
-                "answer_letter": question.answer_letter,
-                "answer_text": question.answer_text,
-                "solution": question.solution,
-                "subject": question.subject,
-                "page": question.page,
-                "source_pdf": question.source_pdf,
-                "topic": question.topic,
-            })
-            if not mcq:
-                continue
+            if count > 25:
+                mcq = {
+                    "question": question.question_text,
+                    "options": question.options or [],
+                    "correct_answer": question.answer_letter or "A",
+                    "solution": question.solution or "",
+                }
+            else:
+                mcq = generate_enhanced_mcq({
+                    "id": question.id,
+                    "text": question.question_text,
+                    "raw_text": question.raw_text,
+                    "question_text": question.question_text,
+                    "options": question.options or [],
+                    "answer_letter": question.answer_letter,
+                    "answer_text": question.answer_text,
+                    "solution": question.solution,
+                    "subject": question.subject,
+                    "page": question.page,
+                    "source_pdf": question.source_pdf,
+                    "topic": question.topic,
+                })
 
             # try:
             #     source_emb = get_faiss_store().embed_texts([normalize_text(question.question_text)])
@@ -204,7 +210,7 @@ def generate_questions_api():
                 "pdf_source": question.source_pdf,
                 "solution": mcq.get("solution", ""),
             }
-            _attach_relevant_image(question, question_obj)
+            #_attach_relevant_image(question, question_obj)
             generated_questions.append(question_obj)
 
         return jsonify({
@@ -301,14 +307,6 @@ def get_test_history():
         }), 500
     
 
-    except Exception as e:
-        print("TEST HISTORY ERROR:", str(e))
-        import traceback
-        traceback.print_exc()
-
-        return jsonify({
-            "error": str(e)
-        }), 500
 
 @question_bp.route("/api/subjects", methods=["GET"])
 def get_subjects():
