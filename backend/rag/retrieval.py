@@ -1,5 +1,4 @@
-
-from sqlalchemy import func
+print("LOADING retrieval")
 
 from rag.validation import normalize_text, is_valid_question_text, detect_subject_from_text
 from rag.embeddings import faiss_store

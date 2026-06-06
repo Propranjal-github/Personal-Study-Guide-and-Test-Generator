@@ -2,7 +2,9 @@
 import json
 import re
 import time
-from typing import Dict, Optional, List
+from typing import Dict, Optional
+
+print("LOADING generation")
 
 import requests
 from sklearn.metrics.pairwise import cosine_similarity
@@ -10,12 +12,11 @@ from sklearn.metrics.pairwise import cosine_similarity
 from config import GROQ_API_KEY, GROQ_API_URL, GROQ_MODEL, MIN_QUESTION_SIMILARITY
 from rag.validation import (
     normalize_text,
-    clean_pdf_text,
     is_valid_question_text,
     is_meaningful_option,
     normalize_correct_answer,
 )
-from rag.embeddings import faiss_store
+from rag.embeddings import get_faiss_store
 
 CONTROL_CHARS_RE = re.compile(r'[\x00-\x1F\x7F]')
 CODE_FENCE_RE = re.compile(r'^\s*```(?:json)?\s*|\s*```\s*$', re.IGNORECASE | re.DOTALL)
@@ -230,8 +231,8 @@ Return exactly this JSON shape:
 
         # semantic drift check
         try:
-            source_vec = faiss_store.embed_texts([clean_question])
-            gen_vec = faiss_store.embed_texts([question])
+            source_vec = get_faiss_store().embed_texts([clean_question])
+            gen_vec = get_faiss_store().embed_texts([question])
             qsim = cosine_similarity(source_vec, gen_vec)[0][0]
             if qsim < MIN_QUESTION_SIMILARITY:
                 print("Generated question too far from source")

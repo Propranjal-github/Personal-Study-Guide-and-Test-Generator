@@ -1,13 +1,12 @@
 
 import hashlib
 import json
-import os
 from pathlib import Path
 
 from config import PDF_DIR, IMAGE_DIR, STORAGE_DIR, PROCESSED_PDFS_PATH
 from database.models import PDFDocument, Question, ImageAsset, QuestionImageAssociation
 from ingestion.pdf_processor import process_pdf_file
-from rag.embeddings import faiss_store
+from rag.embeddings import get_faiss_store
 
 def calculate_file_hash(file_path):
     hasher = hashlib.md5()
@@ -153,5 +152,9 @@ def ingest_all_pdfs(session):
         processed[pdf_path.name] = {"hash": file_hash, "processed": True}
 
     save_processed_pdfs(processed)
-    faiss_store.rebuild_from_db(session, Question, ImageAsset)
+    get_faiss_store().rebuild_from_db(
+        session,
+        Question,
+        ImageAsset
+    )    
     return report

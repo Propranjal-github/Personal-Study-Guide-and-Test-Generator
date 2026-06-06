@@ -5,6 +5,8 @@ import threading
 import numpy as np
 import faiss
 
+print("LOADING embeddings")
+
 from config import (
     EMBEDDER_NAME,
     EMBEDDING_FALLBACK_ONLY,
@@ -106,7 +108,6 @@ class FaissStore:
         return np.array(vectors, dtype="float32")
 
     def rebuild_from_db(self, session, Question, ImageAsset):
-        from sqlalchemy.orm import joinedload
 
         with self.lock:
             self.question_index = self._new_index()
@@ -188,4 +189,13 @@ class FaissStore:
                 })
             return results
 
-faiss_store = FaissStore()
+_faiss_store = None
+
+def get_faiss_store():
+    global _faiss_store
+
+    if _faiss_store is None:
+        print("Initializing FAISS Store...")
+        _faiss_store = FaissStore()
+
+    return _faiss_store

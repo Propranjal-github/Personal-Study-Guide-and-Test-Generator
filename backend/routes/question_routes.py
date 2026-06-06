@@ -6,13 +6,15 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy import func
 from sklearn.metrics.pairwise import cosine_similarity
 
+print("LOADING question_routes")
+
 from analytics.weak_topics import extract_topic_from_text, get_user_weak_topics_with_weights
 from config import DEFAULT_TIME_LIMIT, IMAGE_DIR, MAX_GENERATE_COUNT, PDF_DIR
 from database.db import db
 from database.models import ImageAsset, Question, QuestionImageAssociation, TestPlan
 from ingestion.ingest import ingest_single_pdf
 from ingestion.pdf_processor import serialize_image_to_base64
-from rag.embeddings import faiss_store
+from rag.embeddings import get_faiss_store
 from rag.generation import generate_enhanced_mcq
 from rag.retrieval import filter_questions_by_subject, retrieve_relevant_questions
 from rag.validation import image_relevance_score, is_valid_question_text, normalize_text
@@ -68,7 +70,7 @@ def upload_pdf():
 
     try:
         result = ingest_single_pdf(db.session, pdf_path)
-        faiss_store.rebuild_from_db(db.session, Question, ImageAsset)
+        get_faiss_store().rebuild_from_db(db.session, Question, ImageAsset)
         return jsonify({
             "message": "PDF processed successfully",
             "questions_extracted": result["questions"],
@@ -181,8 +183,8 @@ def generate_questions_api():
                 continue
 
             try:
-                source_emb = faiss_store.embed_texts([normalize_text(question.question_text)])
-                generated_emb = faiss_store.embed_texts([normalize_text(mcq.get("question", ""))])
+                source_emb = get_faiss_store().embed_texts([normalize_text(question.question_text)])
+                generated_emb = get_faiss_store().embed_texts([normalize_text(mcq.get("question", ""))])
                 qsim = float(cosine_similarity(source_emb, generated_emb)[0][0])
             except Exception:
                 qsim = 1.0

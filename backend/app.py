@@ -5,16 +5,20 @@ from flask import Flask
 from flask_cors import CORS
 
 from config import (
-    CORS_ORIGINS,
     DATABASE_URL,
     LOG_DIR,
     SECRET_KEY,
 )
 
 from database.db import db
+
+print("IMPORTING analytics_routes")
 from routes.analytics_routes import analytics_bp
+
+print("IMPORTING question_routes")
 from routes.question_routes import question_bp
 
+print("ROUTES IMPORTED")
 
 def create_app():
     print("STEP 1: Creating Flask app")
