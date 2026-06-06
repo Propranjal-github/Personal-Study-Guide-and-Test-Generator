@@ -259,27 +259,50 @@ def save_test():
     db.session.commit()
     return jsonify({"testId": test.id}), 201
 
-
 @question_bp.route("/api/test-history", methods=["POST"])
 def get_test_history():
-    user_id = (request.get_json(force=True) or {}).get("userId")
-    if not user_id:
-        return jsonify({"error": "Missing userId"}), 400
-    tests = db.session.query(TestPlan).filter(TestPlan.user_id == user_id).order_by(TestPlan.created_at.desc()).all()
-    return jsonify({"tests": [{
-        "testId": test.id,
-        "testType": test.test_type,
-        "subjects": test.subjects or [],
-        "totalQuestions": test.total_questions,
-        "timeLimit": test.time_limit,
-        "questions": test.questions or [],
-        "createdAt": test.created_at.isoformat() if test.created_at else datetime.now(timezone.utc).isoformat(),
-        "score": None,
-        "total": None,
-        "percentage": None,
-        "completedAt": None,
-    } for test in tests]}), 200
+    try:
+        user_id = (request.get_json(force=True) or {}).get("userId")
 
+        if not user_id:
+            return jsonify({"error": "Missing userId"}), 400
+
+        tests = (
+            db.session.query(TestPlan)
+            .filter(TestPlan.user_id == user_id)
+            .order_by(TestPlan.created_at.desc())
+            .all()
+        )
+
+        return jsonify({
+            "tests": [{
+                "testId": test.id,
+                "testType": test.test_type,
+                "subjects": test.subjects or [],
+                "totalQuestions": test.total_questions,
+                "timeLimit": test.time_limit,
+                "questions": test.questions or [],
+                "createdAt": str(test.created_at),
+            } for test in tests]
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+
+        return jsonify({
+            "error": str(e)
+        }), 500
+    
+
+    except Exception as e:
+        print("TEST HISTORY ERROR:", str(e))
+        import traceback
+        traceback.print_exc()
+
+        return jsonify({
+            "error": str(e)
+        }), 500
 
 @question_bp.route("/api/subjects", methods=["GET"])
 def get_subjects():

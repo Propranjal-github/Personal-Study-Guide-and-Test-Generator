@@ -12,7 +12,7 @@ Upload your academic material, extract questions, attempt timed tests, and get *
 - **Semantic Similarity**: Compares generated questions with real JEE questions using **Sentence-BERT** for high-quality test generation.  
 - **Fast Vector Search**: Stores embeddings in **FAISS** for instant semantic retrieval and evaluation.  
 - **Custom Test Creation**: Users can generate personalized mock tests and curate question sets.  
-- **Automatic Evaluation & History**: Auto-evaluation of tests and storing results in **MongoDB**.  
+- **Automatic Evaluation & History**: Auto-evaluation of tests and storing results in **PostgreSQL**.  
 - **Modern, Interactive Frontend**: Dashboard, test interface, and retry option built with **React + Tailwind CSS**.  
 
 ---
@@ -33,7 +33,7 @@ Upload your academic material, extract questions, attempt timed tests, and get *
 
 | Frontend           | Backend         | AI / ML & NLP                                                                 | Storage  |
 | ------------------ | --------------- | ---------------------------------------------------------------------------- | -------- |
-| React + Tailwind CSS | Flask (Python) | Groq API (LLaMA-3) <br> PyMuPDF (PDF parsing & captions) <br> Sentence-BERT (semantic similarity) <br> FAISS (vector storage) | MongoDB  |
+| React + Tailwind CSS | Flask (Python) | Groq API (LLaMA-3) <br> PyMuPDF (PDF parsing & captions) <br> Sentence-BERT (semantic similarity) <br> FAISS (vector storage) | PostgreSQL  |
 
 ---
 

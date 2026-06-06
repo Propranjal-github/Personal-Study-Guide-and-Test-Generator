@@ -1,7 +1,14 @@
-from sqlalchemy import create_engine
-from config import DATABASE_URL
+from app import create_app
+from database.models import TestPlan
 
-engine = create_engine(DATABASE_URL)
+app = create_app()
 
-with engine.connect() as conn:
-    print("Connected successfully!")
+with app.app_context():
+    tests = TestPlan.query.all()
+
+    for t in tests:
+        print("ID:", t.id)
+        print("USER:", t.user_id)
+        print("QUESTIONS TYPE:", type(t.questions))
+        print("QUESTIONS:", t.questions)
+        print("-" * 50)
