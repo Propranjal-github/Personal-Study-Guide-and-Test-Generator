@@ -111,10 +111,12 @@ def admin_stats():
     }, 200
 
 
+
 @question_bp.route("/api/generate-questions", methods=["POST"])
 def generate_questions_api():
     try:
         payload = request.get_json(force=True) or {}
+
         subject = payload.get("subject", "All")
         count = min(int(payload.get("count", 10)), MAX_GENERATE_COUNT)
         topics = payload.get("topics", [])
@@ -129,99 +131,167 @@ def generate_questions_api():
         weighted_rag_used = False
 
         if use_recommendations and user_id:
-            weak_topics_weights = get_user_weak_topics_with_weights(db.session, user_id)
+            weak_topics_weights = get_user_weak_topics_with_weights(
+                db.session,
+                user_id
+            )
             weak_topics = list(weak_topics_weights.keys())
             recommendations_applied = bool(weak_topics)
             weighted_rag_used = bool(weak_topics)
+
+        # ---------------- Candidate Retrieval ----------------
+
+        retrieval_k = max(count * 8, 200)
 
         if topic_filter:
             candidates = retrieve_relevant_questions(
                 db.session,
                 topic_filter,
                 subject,
-                k=min(count * 2, 150),
+                k=retrieval_k,
                 topic_filter=topic_filter,
                 weak_topics_weights=weak_topics_weights,
                 difficulty=difficulty,
             )
+
         elif weak_topics_weights:
             candidates = retrieve_relevant_questions(
                 db.session,
                 " ".join(weak_topics[:3]) if weak_topics else subject,
                 subject,
-                k=count * 4,
+                k=retrieval_k,
                 weak_topics_weights=weak_topics_weights,
                 difficulty=difficulty,
             )
+
         else:
-            candidates = filter_questions_by_subject(db.session, subject, k=count * 4)
+            candidates = filter_questions_by_subject(
+                db.session,
+                subject,
+                k=retrieval_k,
+            )
 
         generated_questions = []
-        for index, question in enumerate(candidates):
+        seen_questions = set()
+
+        for question in candidates:
+
             if len(generated_questions) >= count:
                 break
+
+            if not question:
+                continue
+
             if not is_valid_question_text(question.question_text):
                 continue
-            # if index > 0:
-            #     time.sleep(2)
 
-            if count > 25:
-                mcq = {
-                    "question": question.question_text,
-                    "options": question.options or [],
-                    "correct_answer": question.answer_letter or "A",
-                    "solution": question.solution or "",
-                }
-            else:
-                mcq = generate_enhanced_mcq({
-                    "id": question.id,
-                    "text": question.question_text,
-                    "raw_text": question.raw_text,
-                    "question_text": question.question_text,
-                    "options": question.options or [],
-                    "answer_letter": question.answer_letter,
-                    "answer_text": question.answer_text,
-                    "solution": question.solution,
-                    "subject": question.subject,
+            try:
+                # -------- For large tests, skip Groq completely --------
+                if count > 25:
+                    options = question.options or []
+
+                    if not isinstance(options, list):
+                        options = []
+
+                    if len(options) != 4:
+                        options = [
+                            "Option A",
+                            "Option B",
+                            "Option C",
+                            "Option D",
+                        ]
+
+                    mcq = {
+                        "question": question.question_text,
+                        "options": options,
+                        "correct_answer": question.answer_letter or "A",
+                        "solution": question.solution or "",
+                    }
+
+                else:
+                    mcq = generate_enhanced_mcq({
+                        "id": question.id,
+                        "text": question.question_text,
+                        "raw_text": question.raw_text,
+                        "question_text": question.question_text,
+                        "options": question.options or [],
+                        "answer_letter": question.answer_letter,
+                        "answer_text": question.answer_text,
+                        "solution": question.solution,
+                        "subject": question.subject,
+                        "page": question.page,
+                        "source_pdf": question.source_pdf,
+                        "topic": question.topic,
+                    })
+
+                    # fallback if Groq fails
+                    if mcq is None:
+                        options = question.options or []
+
+                        if len(options) != 4:
+                            options = [
+                                "Option A",
+                                "Option B",
+                                "Option C",
+                                "Option D",
+                            ]
+
+                        mcq = {
+                            "question": question.question_text,
+                            "options": options,
+                            "correct_answer": question.answer_letter or "A",
+                            "solution": question.solution or "",
+                        }
+
+                if not mcq:
+                    continue
+
+                qtext = (mcq.get("question") or "").strip()
+
+                if not qtext:
+                    continue
+
+                normalized = normalize_text(qtext).lower()
+
+                if normalized in seen_questions:
+                    continue
+
+                seen_questions.add(normalized)
+
+                question_obj = {
+                    "question": qtext,
+                    "options": mcq.get("options", []),
+                    "answer": mcq.get("correct_answer", "A"),
+                    "subject": question.subject or subject or "Unknown",
+                    "topic": question.topic or extract_topic_from_text(
+                        question.question_text
+                    ),
+                    "difficulty": question.difficulty or difficulty,
+                    "source_text": (
+                        question.raw_text or question.question_text
+                    )[:300],
                     "page": question.page,
-                    "source_pdf": question.source_pdf,
-                    "topic": question.topic,
-                })
+                    "pdf_source": question.source_pdf,
+                    "solution": mcq.get("solution", ""),
+                }
 
-            # try:
-            #     source_emb = get_faiss_store().embed_texts([normalize_text(question.question_text)])
-            #     generated_emb = get_faiss_store().embed_texts([normalize_text(mcq.get("question", ""))])
-            #     qsim = float(cosine_similarity(source_emb, generated_emb)[0][0])
-            # except Exception:
-            #     qsim = 1.0
-            # if qsim < 0.45:
-            #     continue
-            qsim = 1.0
+                generated_questions.append(question_obj)
 
-            question_obj = {
-                "question": mcq["question"],
-                "options": mcq["options"],
-                "answer": mcq["correct_answer"],
-                "subject": question.subject or subject or "Unknown",
-                "topic": question.topic or extract_topic_from_text(question.question_text),
-                "difficulty": question.difficulty or difficulty,
-                "source_text": (question.raw_text or question.question_text)[:300],
-                "page": question.page,
-                "pdf_source": question.source_pdf,
-                "solution": mcq.get("solution", ""),
-            }
-            #_attach_relevant_image(question, question_obj)
-            generated_questions.append(question_obj)
+            except Exception as e:
+                print(f"Skipping question because of error: {e}")
+                continue
 
         return jsonify({
             "questions": generated_questions,
             "subject": subject,
             "count": len(generated_questions),
             "difficulty": difficulty,
-            "total_questions_in_db": db.session.query(Question).count(),
-            "total_images_in_db": db.session.query(ImageAsset).count(),
+            "total_questions_in_db": Question.query.count(),
+            "total_images_in_db": ImageAsset.query.count(),
             "weak_topics_used": weak_topics if use_recommendations else [],
-            "topic_weights_applied": weak_topics_weights if use_recommendations else {},
+            "topic_weights_applied": (
+                weak_topics_weights if use_recommendations else {}
+            ),
             "recommendations_applied": recommendations_applied,
             "weighted_rag_used": weighted_rag_used,
             "rag_metrics": {
@@ -229,11 +299,16 @@ def generate_questions_api():
                 "medium_priority_questions": 0,
                 "low_priority_questions": 0,
                 "average_weight": 0.0,
-                "effectiveness_score": 1.0 if generated_questions else 0.0,
+                "effectiveness_score": (
+                    1.0 if generated_questions else 0.0
+                ),
                 "total_weak_topics_targeted": len(weak_topics),
-                "questions_with_topic_match": sum(1 for q in generated_questions if q.get("topic")),
+                "questions_with_topic_match": sum(
+                    1 for q in generated_questions if q.get("topic")
+                ),
             },
         }), 200
+
     except Exception as exc:
         import traceback
         traceback.print_exc()
@@ -241,6 +316,8 @@ def generate_questions_api():
         return jsonify({
             "error": str(exc)
         }), 500
+
+
 
 
 @question_bp.route("/api/admin/stats")

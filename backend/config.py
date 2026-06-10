@@ -41,7 +41,7 @@ PROCESSED_PDFS_PATH = STORAGE_DIR / "processed_pdfs.json"
 
 # Runtime
 AUTO_INGEST_ON_STARTUP = os.getenv("AUTO_INGEST_ON_STARTUP", "true").lower() == "true"
-MAX_GENERATE_COUNT = int(os.getenv("MAX_GENERATE_COUNT", "25"))
+MAX_GENERATE_COUNT = int(os.getenv("MAX_GENERATE_COUNT", "75"))
 DEFAULT_TIME_LIMIT = int(os.getenv("DEFAULT_TIME_LIMIT", "3600"))
 
 # Matching thresholds

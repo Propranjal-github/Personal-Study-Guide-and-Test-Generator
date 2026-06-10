@@ -219,8 +219,17 @@ Return exactly this JSON shape:
             print("Duplicate options found")
             return None
         if not all(is_meaningful_option(opt) for opt in options):
-            print("Options are not meaningful")
-            return None
+            print("Options are not meaningful, using source options")
+            source_options = question_record.get("options") or []
+            if len(source_options) == 4:
+                options = [normalize_text(o) for o in source_options]
+            else:
+                options = [
+                    "Option A",
+                    "Option B",
+                    "Option C",
+                    "Option D",
+                ]
 
         options = [normalize_text(opt) for opt in options]
         correct_letter, correct_text = normalize_correct_answer(mcq.get("correct_answer"), options)
