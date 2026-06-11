@@ -76,6 +76,13 @@ export default function AuthPage() {
     }
   };
 
+  const handleDemoCredentials = () => {
+    resetMessages();
+    setEmail("guest.demo.jeeace@gmail.com");
+    setPassword("JEEAce@Demo2026");
+    setSuccess("Demo credentials loaded! Click Login to continue.");
+  };
+
   return (
     <div className="min-h-screen bg-white font-poppins">
       <Navbar />
@@ -126,8 +133,8 @@ export default function AuthPage() {
             <h2 className="text-3xl font-bold text-[#FA812F]">
               {isLogin ? "Login to Your Account" : "Create a New Account"}
             </h2>
-            {error && <p className="text-red-300 text-sm">{error}</p>}
-            {success && <p className="text-green-300 text-sm">{success}</p>}
+            {error && <p className="text-red-600 text-sm">{error}</p>}
+            {success && <p className="text-green-600 text-sm">{success}</p>}
 
             <form
               onSubmit={isLogin ? handleEmailLogin : handleSignUp}
@@ -158,6 +165,15 @@ export default function AuthPage() {
               >
                 {isLogin ? "Login" : "Sign Up"}
               </button>
+              {isLogin && (
+                <button
+                  type="button"
+                  onClick={handleDemoCredentials}
+                  className="w-full py-3 rounded-xl border-2 border-dashed border-[#FA812F] bg-orange-50 hover:bg-orange-100 transition font-semibold text-[#FA812F]"
+                >
+                  🎯 Use Demo Credentials
+                </button>
+              )}
             </form>
 
             <div className="flex items-center justify-center gap-4">
