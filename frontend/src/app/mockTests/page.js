@@ -85,6 +85,13 @@ export default function CreateMockTest() {
   const [filterType, setFilterType] = useState("all");
   const [showTopics, setShowTopics] = useState({});
   const router = useRouter();
+  const [progress, setProgress] = useState(0);
+  const [currentStep, setCurrentStep] = useState("Initializing AI engine...");
+  const [subjectStatus, setSubjectStatus] = useState({
+    Physics: "pending",
+    Chemistry: "pending",
+    Mathematics: "pending",
+  });
 
   const handleSubjectToggle = (subject) => {
     if (selectedSubjects.includes(subject)) {
@@ -148,28 +155,74 @@ export default function CreateMockTest() {
     }
   };
 
+  useEffect(() => {
+    if (!isLoading) return;
+
+    const messages = [
+      "🧠 Initializing AI engine...",
+      "📚 Retrieving relevant questions...",
+      "🎯 Personalizing your mock test...",
+      "⚡ Generating AI-enhanced questions...",
+      "📝 Building your final paper...",
+      "✨ Almost done..."
+    ];
+
+    let index = 0;
+
+    const interval = setInterval(() => {
+      index = Math.min(index + 1, messages.length - 1);
+      setCurrentStep(messages[index]);
+      setProgress((prev) => Math.min(prev + 12, 90));
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [isLoading]);
+
   const generateQuestionsForSubject = async (subject, topics, count) => {
     try {
+      setSubjectStatus((prev) => ({
+        ...prev,
+        [subject]: "loading",
+      }));
+
       const response = await fetch(`${API_URL}/api/generate-questions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          subject: subject,
-          count: count,
+          subject,
+          count,
           topics: topics || [],
         }),
       });
 
       if (!response.ok) {
+        setSubjectStatus((prev) => ({
+          ...prev,
+          [subject]: "error",
+        }));
         throw new Error(`Failed to generate questions for ${subject}`);
       }
 
       const data = await response.json();
+
+      setSubjectStatus((prev) => ({
+        ...prev,
+        [subject]: "done",
+      }));
+
+      setProgress((prev) => Math.min(prev + 30, 95));
+
       return data.questions || [];
     } catch (error) {
       console.error(`Error generating questions for ${subject}:`, error);
+
+      setSubjectStatus((prev) => ({
+        ...prev,
+        [subject]: "error",
+      }));
+
       return [];
     }
   };
@@ -177,6 +230,14 @@ export default function CreateMockTest() {
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     setIsLoading(true);
+
+    setProgress(5);
+    setCurrentStep("🧠 Initializing AI engine...");
+    setSubjectStatus({
+      Physics: "pending",
+      Chemistry: "pending",
+      Mathematics: "pending",
+    });
 
     try {
       if (testType === "custom" && (!customTime || customTime < 10 || customTime > 180)) {
@@ -251,6 +312,8 @@ export default function CreateMockTest() {
         }
       }
 
+      setProgress(100);
+      setCurrentStep("✅ Test generated successfully!");
       setTestData(testConfig);
       setTestCreated(true);
     } catch (error) {
@@ -358,6 +421,63 @@ export default function CreateMockTest() {
 
   return (
     <div>
+      {isLoading && (
+        <div className="fixed inset-0 z-50 bg-white flex items-center justify-center">
+          <div className="w-full max-w-xl p-8">
+            <h2 className="text-3xl font-bold text-center text-[#FA812F] mb-6">
+              Creating Your Personalized Mock Test
+            </h2>
+
+            <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden mb-6">
+              <div
+                className="bg-[#FA812F] h-4 transition-all duration-1000"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+
+            <p className="text-center text-lg font-medium text-black mb-8">
+              {currentStep}
+            </p>
+
+            <div className="space-y-4">
+              {["Physics", "Chemistry", "Mathematics"].map((subject) => (
+                <div
+                  key={subject}
+                  className="flex justify-between items-center p-4 border border-[#FA812F]/20 rounded-lg"
+                >
+                  <span className="font-medium text-black">{subject}</span>
+
+                  {subjectStatus[subject] === "pending" && (
+                    <span className="text-gray-500">⏸ Waiting</span>
+                  )}
+
+                  {subjectStatus[subject] === "loading" && (
+                    <span className="text-[#FA812F] animate-pulse">
+                      ⚡ Generating...
+                    </span>
+                  )}
+
+                  {subjectStatus[subject] === "done" && (
+                    <span className="text-green-600 font-semibold">
+                      ✓ Completed
+                    </span>
+                  )}
+
+                  {subjectStatus[subject] === "error" && (
+                    <span className="text-red-600">
+                      ✗ Retry
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <p className="mt-8 text-center text-gray-500 text-sm">
+              AI is analyzing your syllabus, selecting relevant questions, and building your customized mock test. This may take around 1-2 minutes.
+            </p>
+          </div>
+        </div>
+      )}
       <Navbar />
       <div className="min-h-screen bg-white p-6">
         <div className="max-w-4xl mx-auto">
@@ -505,7 +625,7 @@ export default function CreateMockTest() {
                     : "bg-[#FA812F] hover:bg-[#e8741e] text-white"
                 )}
               >
-                {isLoading ? "Creating Test..." : "Create Test"}
+                {isLoading ? `Creating Test... ${progress}%` : "Create Test"}
               </button>
               
               {testType === "custom" && selectedSubjects.length === 0 && (
