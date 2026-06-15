@@ -163,17 +163,17 @@ export default function AuthPage() {
                     : "bg-[#F3C623] hover:bg-yellow-500 text-gray-800"
                   }`}
               >
-                {isLogin ? "Login" : "Sign Up"}
-              </button>
-              {isLogin && (
-                <button
-                  type="button"
-                  onClick={handleDemoCredentials}
-                  className="w-full py-3 rounded-xl border-2 border-dashed border-[#FA812F] bg-orange-50 hover:bg-orange-100 transition font-semibold text-[#FA812F]"
-                >
-                  🎯 Use Demo Credentials
+              {isLogin ? "Login" : "Sign Up"}
                 </button>
-              )}
+                {isLogin && (
+                  <button
+                    type="button"
+                    onClick={handleDemoCredentials}
+                    className="w-full py-3 rounded-xl border-2 border-dashed border-[#FA812F] bg-orange-50 hover:bg-orange-100 transition font-semibold text-[#FA812F]"
+                  >
+                    🎯 Use Demo Credentials
+                  </button>
+                )}
             </form>
 
             <div className="flex items-center justify-center gap-4">
