@@ -172,8 +172,8 @@ The work explores how Retrieval-Augmented Generation and semantic retrieval tech
 ### Clone the Repository
 
 ```bash
-git clone https://github.com/Paridhisharmagithub/test-generator-web-master.git
-cd test-generator-web-master
+git clone https://github.com/Propranjal-github/Personal-Study-Guide-and-Test-Generator.git
+cd Personal-Study-Guide-and-Test-Generator
 ```
 
 ### Install Dependencies
